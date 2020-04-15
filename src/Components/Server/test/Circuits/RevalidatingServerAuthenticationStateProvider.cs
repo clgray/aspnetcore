@@ -185,17 +185,20 @@ namespace Microsoft.AspNetCore.Components
         }
 
         [Fact]
-        [QuarantinedTest("https://github.com/dotnet/aspnetcore/issues/19940")]
         public async Task IfValidateAuthenticationStateAsyncReturnsUnrelatedCancelledTask_TreatAsFailure()
         {
             // Arrange
             var validationTcs = new TaskCompletionSource<bool>();
+            var incrementExecuted = new TaskCompletionSource<bool>();
             var authenticationStateChangedCount = 0;
             using var provider = new TestRevalidatingServerAuthenticationStateProvider(
                 TimeSpan.FromMilliseconds(50));
             provider.NextValidationResult = validationTcs.Task;
             provider.SetAuthenticationState(CreateAuthenticationStateTask("test user"));
-            provider.AuthenticationStateChanged += _ => { authenticationStateChangedCount++; };
+            provider.AuthenticationStateChanged += _ => {
+                authenticationStateChangedCount++;
+                incrementExecuted.TrySetResult(true);
+            };
 
             // Be waiting for the first ValidateAuthenticationStateAsync to complete
             await provider.NextValidateAuthenticationStateAsyncCall;
@@ -208,6 +211,7 @@ namespace Microsoft.AspNetCore.Components
 
             // Assert: Since we didn't ask for that operation to be canceled, this is treated as
             // a failure to validate, so we force a logout
+            await incrementExecuted.Task.TimeoutAfter(TimeSpan.FromSeconds(1));
             Assert.Equal(1, authenticationStateChangedCount);
             var newAuthState = await provider.GetAuthenticationStateAsync();
             Assert.False(newAuthState.User.Identity.IsAuthenticated);
